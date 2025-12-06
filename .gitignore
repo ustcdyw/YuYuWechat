@@ -1,12 +1,48 @@
-/.idea/
+# General
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+
+# Build
+build/
+dist/
+*.spec
+
+# Project Specific - Client
 YuYuWechatV2_Client/client_app/management/commands/Test_generate_message_checks.py
 YuYuWechatV2_Client/celerybeat-schedule.db
-/YuYuWechatV2_Server/.idea/misc.xml
-/YuYuWechatV2_Server/.idea/inspectionProfiles/profiles_settings.xml
-/YuYuWechatV2_Server/.idea/vcs.xml
-/YuYuWechatV2_Server/.idea/workspace.xml
-/YuYuWechatV2_Server/.idea/YuYuWechatV2_Server.iml
-/YuYuWechatV2_Client/db_backup.json
-/YuYuWechatV2_Client/postgres_data/
-/YuYuWechatV2_Server/dist/YuYuWechatV2_Server.exe
-/YuYuWechatV2_Server/build/
+YuYuWechatV2_Client/db_backup.json
+YuYuWechatV2_Client/postgres_data/
+
+# Project Specific - Server
+@AutomationLog.txt
+test_wechat.py
+update_wechat_path.py
+
+# Legacy / Other
+easyChat/

@@ -79,7 +79,7 @@ class WeChat:
         self.open_wechat()
         self.get_wechat()
 
-        search_box = auto.EditControl(Depth=8, Name=self.lc.search)
+        search_box = auto.EditControl(Depth=13, Name=self.lc.search)
         click(search_box)
 
     # 搜索指定用户
@@ -87,7 +87,7 @@ class WeChat:
         self.open_wechat()
         self.get_wechat()
 
-        search_box = auto.EditControl(Depth=8, Name=self.lc.search)
+        search_box = auto.EditControl(Depth=13, Name=self.lc.search)
         click(search_box)
 
         pyperclip.copy(name)
@@ -95,7 +95,19 @@ class WeChat:
 
         # 等待客户端搜索联系人
         time.sleep(0.3)
-        search_box.SendKeys("{enter}")
+        
+        # 现在群聊不会出现在搜索的第一行，需要手动选择
+        list_control = auto.ListControl(Depth=4)
+        for item in list_control.GetChildren():
+            # 联系人项的 ClassName 不包含 "XTableCell"，默认选择第一个联系人，点击进入窗口
+            if "XTableCell" not in item.ClassName:
+                click(item)
+                break
+
+        # 点击发送内容输入框来获取输入焦点
+        tool_bar = auto.ToolBarControl(Depth=15)
+        move(tool_bar)
+        click(tool_bar)
 
     # 鼠标移动到发送按钮处点击发送消息
     def press_enter(self):
@@ -125,28 +137,52 @@ class WeChat:
             auto.SendKeys("{enter}")
             self.press_enter()
 
-    def send_msg(self, name, text, search_user: bool = True) -> bool:
+    def paste_text(self, text: str) -> None:
+        """
+        封装文本粘贴逻辑
+        Args:
+            text: 待发送文本
+        """
+        pyperclip.copy(text)
+        # 等待粘贴
+        time.sleep(0.3)
+        auto.SendKeys("{Ctrl}v")
+
+    def send_msg(self, name, text, at_names: List[str] = None, search_user: bool = True) -> bool:
         """
         搜索指定用户名的联系人发送信息
         Args:
             name: 指定用户名的名称，输入搜索框后出现的第一个人
             text: 发送的文本信息
+            at_names: 若发送对象为群，则可以@他人（若@所有人需具备@所有人权限）
             search_user: 是否需要搜索用户
         """
         if search_user:
             self.get_contact(name)
-        pyperclip.copy(text)
+            
+        if at_names is not None:
+            # @所有列表中的人名
+            for at_name in at_names:
+                # 如果at_name为 "所有人" 则代表@所有人
+                if at_name == "所有人":
+                    auto.SendKeys("@{UP}{enter}")
+                elif at_name != "":
+                    auto.SendKeys(f"@{at_name}")
+                    # 按下回车键确认要at的人
+                    auto.SendKeys("{enter}")
 
-        # 等待粘贴
-        time.sleep(0.3)
-        auto.SendKeys("{Ctrl}v")
+        if text is not None:
+            self.paste_text(text)
 
         self.press_enter()
         # 发送消息后马上获取聊天记录，判断是否发送成功
-        if self.get_dialogs(name, 1, False)[0][2] == text:
+        try:
+            if self.get_dialogs(name, 1, False)[0][2] == text:
+                return True
+            else:
+                return False
+        except Exception:
             return True
-        else:
-            return False
 
     # 搜索指定用户名的联系人发送文件
     def send_file(self, name: str, path: str, search_user: bool = True) -> None:
@@ -167,6 +203,8 @@ class WeChat:
 
     # 获取所有通讯录中所有联系人
     def find_all_contacts(self):
+        raise NotImplementedError("该方法尚未适配新版微信")
+
         self.open_wechat()
         self.get_wechat()
 

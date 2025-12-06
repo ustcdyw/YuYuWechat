@@ -22,6 +22,11 @@ from .ui_auto_wechat import WeChat
 class SendMessageSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="接收消息的联系人或群聊名称")
     text = serializers.CharField(help_text="要发送的文本消息内容")
+    at_names = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="要@的人的昵称列表（可选）。若包含'所有人'则@全体成员"
+    )
 
 # 通用的消息/操作响应序列化器
 class OperationResponseSerializer(serializers.Serializer):
@@ -156,7 +161,8 @@ def _task_worker():
                     if action == "send_message":
                         name = args["name"]
                         text = args["text"]
-                        ok = wechat.send_msg(name, text)
+                        at_names = args.get("at_names")  # 获取可选参数
+                        ok = wechat.send_msg(name, text, at_names=at_names)
                         if ok:
                             response = {"status": "Message sent", "name": name}
                             http_status = 200
@@ -237,19 +243,20 @@ def send_message(request):
         data = json.loads(request.body)
         name = data['name']
         text = data['text']
+        at_names = data.get('at_names')  # 获取可选参数
 
         # 记录请求日志（received -> queued）
         log = RequestLog.objects.create(
             action="send_message",
             endpoint=request.path,
             status="queued",
-            request_data={"name": name, "text": text},
+            request_data={"name": name, "text": text, "at_names": at_names},
             client_ip=_get_client_ip(request),
         )
 
         result = _enqueue_and_wait({
             "type": "send_message",
-            "args": {"name": name, "text": text},
+            "args": {"name": name, "text": text, "at_names": at_names},
             "log_id": log.id,
         })
         return JsonResponse(result["response"], status=result["http_status"])
