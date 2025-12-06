@@ -68,7 +68,14 @@ class WeChat:
 
     # 打开微信客户端
     def open_wechat(self):
-        subprocess.Popen(self.path)
+        # 如果已经运行，则不打开
+        if auto.WindowControl(Name=self.lc.weixin).Exists(0, 0):
+            return
+        
+        try:
+            subprocess.Popen(self.path)
+        except FileNotFoundError:
+            print(f"Warning: WeChat executable not found at {self.path}, assuming it is already running.")
 
     # 搜寻微信客户端控件
     def get_wechat(self):
@@ -203,54 +210,89 @@ class WeChat:
 
     # 获取所有通讯录中所有联系人
     def find_all_contacts(self):
-        raise NotImplementedError("该方法尚未适配新版微信")
-
         self.open_wechat()
         self.get_wechat()
 
-        # 获取通讯录管理界面
+        # 点击通讯录
         click(auto.ButtonControl(Name=self.lc.contacts))
+        
+        # 适配微信 4.0
+        list_control = auto.ListControl(AutomationId='primary_table_.contact_list')
+        if list_control.Exists(0, 2):
+            contacts = []
+            scroll_pattern = list_control.GetScrollPattern()
+            
+            if scroll_pattern:
+                # 滚动到顶部
+                scroll_pattern.SetScrollPercent(-1, 0)
+                
+                # 慢慢滚动到底部
+                # 微信 4.0 列表较长，步长设置小一点防止漏掉
+                for percent in np.arange(0, 1.02, 0.01): 
+                    scroll_pattern.SetScrollPercent(-1, percent)
+                    
+                    for child in list_control.GetChildren():
+                        if "ContactsCellItemView" in child.ClassName:
+                            name = child.Name
+                            if name:
+                                contacts.append(name)
+            else:
+                # No scroll, just read visible
+                for child in list_control.GetChildren():
+                    if "ContactsCellItemView" in child.ClassName:
+                        name = child.Name
+                        if name:
+                            contacts.append(name)
+                            
+            return list(set(contacts))
+
+        # 旧版逻辑 (尝试寻找通讯录管理)
         list_control = auto.ListControl(Name=self.lc.contact)
-        scroll_pattern = list_control.GetScrollPattern()
-        scroll_pattern.SetScrollPercent(-1, 0)
-        contacts_menu = list_control.ButtonControl(Name=self.lc.manage_contacts)
-        click(contacts_menu)
+        if list_control.Exists(0, 1):
+            scroll_pattern = list_control.GetScrollPattern()
+            if scroll_pattern:
+                scroll_pattern.SetScrollPercent(-1, 0)
+            contacts_menu = list_control.ButtonControl(Name=self.lc.manage_contacts)
+            if contacts_menu.Exists(0, 1):
+                click(contacts_menu)
 
-        # 切换到通讯录管理界面
-        contacts_window = auto.GetForegroundControl()
-        list_control = contacts_window.ListControl()
-        scroll_pattern = list_control.GetScrollPattern()
+                # 切换到通讯录管理界面
+                contacts_window = auto.GetForegroundControl()
+                list_control = contacts_window.ListControl()
+                scroll_pattern = list_control.GetScrollPattern()
 
-        # 读取用户
-        contacts = []
-        # 如果不存在滑轮则直接读取
-        if scroll_pattern is None:
-            for contact in contacts_window.ListControl().GetChildren():
-                # 获取用户的昵称以及备注
-                name = contact.TextControl().Name
-                note = contact.ButtonControl(foundIndex=2).Name
+                # 读取用户
+                contacts = []
+                # 如果不存在滑轮则直接读取
+                if scroll_pattern is None:
+                    for contact in contacts_window.ListControl().GetChildren():
+                        # 获取用户的昵称以及备注
+                        name = contact.TextControl().Name
+                        note = contact.ButtonControl(foundIndex=2).Name
 
-                # 有备注的用备注，没有备注的用昵称
-                if note == "":
-                    contacts.append(name)
+                        # 有备注的用备注，没有备注的用昵称
+                        if note == "":
+                            contacts.append(name)
+                        else:
+                            contacts.append(note)
                 else:
-                    contacts.append(note)
-        else:
-            for percent in np.arange(0, 1.002, 0.001):
-                scroll_pattern.SetScrollPercent(-1, percent)
-                for contact in contacts_window.ListControl().GetChildren():
-                    # 获取用户的昵称以及备注
-                    name = contact.TextControl().Name
-                    note = contact.ButtonControl(foundIndex=2).Name
+                    for percent in np.arange(0, 1.002, 0.001):
+                        scroll_pattern.SetScrollPercent(-1, percent)
+                        for contact in contacts_window.ListControl().GetChildren():
+                            # 获取用户的昵称以及备注
+                            name = contact.TextControl().Name
+                            note = contact.ButtonControl(foundIndex=2).Name
 
-                    # 有备注的用备注，没有备注的用昵称
-                    if note == "":
-                        contacts.append(name)
-                    else:
-                        contacts.append(note)
+                            # 有备注的用备注，没有备注的用昵称
+                            if note == "":
+                                contacts.append(name)
+                            else:
+                                contacts.append(note)
 
-        # 返回去重过后的联系人列表
-        return list(set(contacts))
+                # 返回去重过后的联系人列表
+                return list(set(contacts))
+        
+        return []
 
     # 获取所有群聊
     def find_all_groups(self):
@@ -345,6 +387,27 @@ class WeChat:
     # 识别聊天内容的类型
     # 0：用户发送    1：时间信息  2：红包信息  3：”查看更多消息“标志 4：撤回消息
     def _detect_type(self, list_item_control: auto.ListItemControl) -> int:
+        # 适配微信 4.0
+        if "mmui::" in list_item_control.ClassName:
+            class_name = list_item_control.ClassName
+            name = list_item_control.Name
+            
+            if "ChatItemView" in class_name:
+                return 1
+            elif "ChatTextItemView" in class_name:
+                return 0
+            elif name == "查看更多消息":
+                return 3
+            elif "红包" in name or "red packet" in name.lower():
+                return 2
+            elif "撤回了一条消息" in name:
+                return 4
+            elif "以下为新消息" in name:
+                return 6
+            else:
+                # 默认为用户发送（如图片、文件等可能也是某种ItemView）
+                return 0
+
         value = None
         # 判断内容框是否为时间框，如果是时间框则子控件不是PaneControl
         if not isinstance(list_item_control.GetFirstChildControl(), auto.PaneControl):
@@ -376,9 +439,51 @@ class WeChat:
 
         return value
 
+    def _detect_sender_color(self, list_item_control: auto.ListItemControl) -> str:
+        """
+        通过颜色分析判断消息发送者类型 (适用于微信 4.x)
+        Return:
+            "Self": 绿色气泡 (#95EC69 approx)
+            "Other": 白色气泡 (#FFFFFF)
+            "Unknown": 未知
+        """
+        try:
+            rect = list_item_control.BoundingRectangle
+            # 截取中间一行像素
+            bbox = (rect.left, (rect.top + rect.bottom) // 2, rect.right, (rect.top + rect.bottom) // 2 + 1)
+            img = ImageGrab.grab(bbox)
+            width, _ = img.size
+            
+            green_pixels = 0
+            white_pixels = 0
+            
+            # 扫描像素
+            for x in range(width):
+                r, g, b = img.getpixel((x, 0))
+                # 绿色判定: G分量高，且R/B相对较低 (WeChat Green: R149 G236 B105)
+                if g > 200 and r < 180 and b < 180:
+                    green_pixels += 1
+                # 白色判定: RGB均高
+                elif r > 245 and g > 245 and b > 245:
+                    white_pixels += 1
+                    
+            # 判定逻辑
+            if green_pixels > 10:
+                return "Self"
+            elif white_pixels > 10:
+                return "Other"
+            else:
+                return "Unknown"
+        except Exception:
+            return "Unknown"
+
     # 获取聊天窗口
     def _get_chat_frame(self, name: str):
         self.get_contact(name)
+        # 适配微信 4.0
+        chat_list = auto.ListControl(AutomationId='chat_message_list')
+        if chat_list.Exists(0, 0):
+            return chat_list
         return auto.ListControl(Name=self.lc.message)
 
     def save_dialog_pictures(self, name: str, num: int, save_dir: str) -> None:
@@ -449,19 +554,41 @@ class WeChat:
         Return:
             dialogs: 聊天记录列表，内部元素为三元组（信息类型，发送人，发送内容）
         """
+        # 确保 name 不为 None
+        chat_name = name if name is not None else "Unknown"
+        
         if search_user:
-            list_control = self._get_chat_frame(name)
+            list_control = self._get_chat_frame(chat_name)
         else:
-            list_control = auto.ListControl(Name=self.lc.message)
+            list_control = auto.ListControl(AutomationId='chat_message_list')
+            if not list_control.Exists(0, 0):
+                list_control = auto.ListControl(Name=self.lc.message)
+                
         scroll_pattern = list_control.GetScrollPattern()
 
         # 如果聊天记录数量 < n_msg，则继续往上翻直到满足条件或无法上翻为止
-        while len(list_control.GetChildren()) < n_msg:
+        # 微信4.0 可能不支持 GetChildren 计数，或者行为不同，这里加个保护
+        try:
+            current_count = len(list_control.GetChildren())
+        except:
+            current_count = 0
+            
+        while current_count < n_msg:
             # 如果滑轮存在，将聊天记录翻到“查看更多消息”
             if scroll_pattern:
                 scroll_pattern.SetScrollPercent(-1, 0)
+            
+            # 尝试刷新计数
+            try:
+                current_count = len(list_control.GetChildren())
+            except:
+                break
+            
             # 如果无法上翻则退出
             first_item = list_control.GetFirstChildControl()
+            if not first_item:
+                break
+            
             if self._detect_type(first_item) != 3:
                 break
             # 否则点击“查看更多消息”
@@ -472,14 +599,44 @@ class WeChat:
         dialogs = []
         value_to_info = {0: '用户发送', 1: '时间信息', 2: '红包信息', 3: '"查看更多消息"标志', 4: '撤回消息',
                          5: "System Notification", 6: '"以下是新消息"标志'}
+        
         # 从下往上依次记录聊天内容。
-        for list_item_control in list_control.GetChildren()[::-1]:
-            v = self._detect_type(list_item_control)
-            msg = list_item_control.Name
-            name = list_item_control.ButtonControl().Name if v == 0 else ''
+        children = list_control.GetChildren()
+        if not children:
+            return []
+            
+        for list_item_control in children[::-1]:
+            try:
+                v = self._detect_type(list_item_control)
+                msg = list_item_control.Name
+                
+                # 微信 4.0 暂时无法获取发送人，默认为空或尝试从Name解析
+                if "mmui::" in list_item_control.ClassName:
+                    # 对于私聊，通过气泡颜色判断是否为自己
+                    if v == 0: # 用户消息
+                        sender_type = self._detect_sender_color(list_item_control)
+                        if sender_type == "Self":
+                            sender_name = "Self" # 自己发送
+                        elif sender_type == "Other":
+                            # 确保传入的 name 不是 None，如果是 None 则设为 "Unknown"
+                            sender_name = chat_name
+                        else:
+                            # Unknown (可能是表情包、图片等非纯文本，或背景色干扰)
+                            # 如果是私聊，且不是自己，很大可能是对方
+                            # 但为了严谨，或者兼容历史消息，如果检测不到Self特征，
+                            # 且消息不是系统消息(v==0)，我们倾向于认为是对方，除非完全无法识别
+                            # 之前的测试显示 Unknown 的大部分其实是 Other (白底/背景色)
+                            # 强制归类为对方 (降级策略)
+                            sender_name = chat_name
+                    else:
+                        sender_name = "" # 系统消息等
+                else:
+                    sender_name = list_item_control.ButtonControl().Name if v == 0 else ''
+            except Exception:
+                continue
 
             cnt += 1
-            dialogs.append((value_to_info[v], name, msg))
+            dialogs.append((value_to_info.get(v, '未知'), sender_name, msg))
 
             # 如果达到n_msg则退出
             if cnt == n_msg:
